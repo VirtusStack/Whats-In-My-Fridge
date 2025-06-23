@@ -7,15 +7,21 @@ if ($conn->connect_error) {
 
 $recipes=[];
 $selected_ingredients=[];
+$action = $_POST['action'] ?? '';
 
-if ($_SERVER["REQUEST_METHOD"] == "POST" && !empty($_POST['ingredients']))  {
+if (!empty($_POST['ingredients'])) {
 $selected_ingredients = array_map('intval', $_POST['ingredients']);
-$count = count($selected_ingredients);
+}
+//handle clear search (research search term only )
+if ($action === 'clear_search') {
+    $selected_ingredients = [];
+}
+//handle recipe search only if find recipes button clicked
+if ($action === 'find_recipes' && count($selected_ingredients) > 0) {
+   $count = count($selected_ingredients);
+   $placeholders = implode(', ', array_fill(0, $count, '?' ));
 
-if ($count > 0) {
-  $placeholders = implode(', ', array_fill(0, $count, '?'));
 
-//find recipes containing all selected ingredients
 $sql="
      SELECT r.recipe_id, r.recipe_name, r.description, r.instructions
      FROM recipes r
@@ -35,11 +41,10 @@ $sql="
             $recipes[] = $row;
         }
     }
-  }
 
-// Fetch all ingredients
+//fetch all ingredients  
+ $ings_result = $conn->query("SELECT ingredient_id, ingredient_name FROM ingredients ORDER BY ingredient_name");
 $all_ingredients = [];
-$ings_result = $conn->query("SELECT ingredient_id, ingredient_name FROM ingredients ORDER BY ingredient_name");
 while ($row = $ings_result->fetch_assoc()) {
     $all_ingredients[] = $row;
 }
@@ -94,7 +99,22 @@ input[type="checkbox"]:checked + .ingredient-label {
  color: #fff;
  border-color: #0d6efd;
 }
-
+#suggestions {
+ max-height: 200px;
+ overflow-y: auto;
+ border: 1px solid #ced4da;
+ background-color: white;
+ list-style: none; 
+ margin: 0;
+ padding: 0;
+  }
+#suggestions li {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+#suggestions li:hover {
+ background-color: #e9ecef;
+}
 </style>
 </head>
 <body>
@@ -102,6 +122,11 @@ input[type="checkbox"]:checked + .ingredient-label {
 <div class="center-box text-center">
 <h1 class="mb-4">What's In My Fridge</h1>
 <form method="POST">
+<div class="mb-3 text-start position-relative">
+<label for="ingredientSearch" class="form-label">Search Ingredients:</label>
+<input type="text" id="ingredientSearch" name="search_ingredients" class="form-control" placeholder="Find...">
+<ul id="suggestions" class="list-group position-absolute mt-1" style="z-index: 1000; display: none;"></ul>
+</div>
 <div class="mb-2 text-start">
 <label class="form-label">Select Ingredient:</label>
 </div>
@@ -114,13 +139,13 @@ input[type="checkbox"]:checked + .ingredient-label {
 
 <?php endforeach; ?>
 </div>
-<div class="d-flex justify-content-between">
-<button type="submit" class="btn btn-primary">Find Recipes</button>
-<a href="<?= htmlspecialchars($_SERVER['PHP_SELF']) ?>" class="btn btn-secondary">Clear</a>
+<div class="d-flex justify-content-between gap-2 flex-wrap">
+<button type="submit" class="btn btn-primary" name="action" value="find_recipes">Find Recipes</button>
+<button type="submit" class="btn btn-secondary" name="action" value="clear_search">Clear Search</button>
  </div>
 </form>
 
-<?php if ($_SERVER["REQUEST_METHOD"] == "POST"): ?>
+<?php if ($action === 'find_recipes'): ?>
 <h2 class = "mt-4 text-start">Matching Recipes:</h2>
 <?php if (!empty($recipes)): ?>
 <?php foreach ($recipes as $recipe): ?>
@@ -161,5 +186,69 @@ while ($row_qty = $qty_result->fetch_assoc()) {
 <?php endif; ?>
 </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+const input = document.getElementById('ingredientSearch');
+const suggestionBox = document.getElementById('suggestions');
+
+// Prepare ingredient names and checckbox IDs
+const allLabels = Array.from(document.querySelectorAll('.ingredient-label')).map(label => ({
+   name: label.textContent.trim(),
+   id: label.getAttribute('for')
+}));
+let currentMatches = []; 
+
+input.addEventListener('input', function () {
+  const keyword = this.value.trim().toLowerCase();
+  suggestionBox.innerHTML = '';
+  currentMatches = []; 
+
+if (!keyword) {
+   suggestionBox.style.display = 'none';
+   return;
+}
+
+currentMatches = allLabels.filter(item => item.name.toLowerCase().includes(keyword));
+
+currentMatches.forEach(item => {
+  const li = document.createElement('li');
+  li.className = 'list-group-item list-group-item-action';
+  li.textContent = item.name;
+  li.dataset.id = item.id;
+
+  li.addEventListener('click', () => {
+    const checkbox = document.getElementById(item.id);
+    if (checkbox) checkbox.checked = true;
+    input.value = '';
+    suggestionBox.innerHTML = '';
+    suggestionBox.style.display = 'none';
+  });
+  suggestionBox.appendChild(li);
+});
+suggestionBox.style.display = currentMatches.length ? 'block' : 'none';
+});
+
+input.addEventListener('keydown', function (e) {
+if (e.key === 'Enter') {
+e.preventDefault();
+if (currentMatches.length > 0 ) {
+const first = currentMatches[0];
+const checkbox = document.getElementById(first.id);
+    if (checkbox) checkbox.checked = true;
+    input.value = '';
+    suggestionBox.innerHTML = '';
+    suggestionBox.style.display = 'none';
+}
+}
+});
+
+// hide on outside click
+document.addEventListener('click', function (e) {
+  if (!suggestionBox.contains(e.target) && e.target !== input) {
+       suggestionBox.style.display = 'none';
+    }
+});
+});
+</script>
 </body>
 </html>
